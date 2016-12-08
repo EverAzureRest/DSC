@@ -1,45 +1,85 @@
-﻿Configuration AppSQL
-{
-import-dscresource -ModuleName xSQLServer
-$setupcred = get-automationpscredential -Name SQLSetupAcct
-$instancename = "MSSQLSERVER"
-$DBSvcAcct = get-automationpscredential -Name SQLSvcAcct
-$sacred = get-automationpscredential -Name SAAcct
-$sasecurepwd = $sacred.Password
-$sapwd = $sacred.GetNetworkCredential().Password
-
-Node DBE
+Configuration SQL
 {
 
-InstanceName = $instancename
-SetupCredential = $setupcred
-InstallSharedDir = "C:\Program Files\Microsoft SQL Server\"
-InstanceDir = "C:\Program Files\Microsoft SQL Server\$($intancename)\"
-InstallSQLDataDir = "E:\Databases\"
-SourcePath = "\\Path\to\Network\Share\SQLinstaller.msi"
-SecurityMode = "Mixed"
-SQLSvcAccount = $DBSvcAcct
-SQLTempDBDir = "F:\DBTEMP\"
-SQLTempDBLogDir = "G:\DBTEMPLOGS\"
-UpdateEnabled = $true
-SAPWD = $sapwd
+Import-DscResource -ModuleName PSDesiredStateConfiguration
+Import-DscResource -ModuleName xSQLServer -Name xSQLServerSetup,xSQLServerDatabaseRole
+Import-DscResource -ModuleName xStorage
+
+$sqlsetupcred = Get-AutomationPSCredential -Name "sqlsetupacct"
+$svcAccount = Get-AutomationPSCredential -Name "sqlserviceacct"
+$storageCredential = Get-AutomationPSCredential -Name "eus2storageaccount"
+$tempdir = "C:\Temp"
+$storageaccountname = Get-AutomationVariable -Name "saname"
+$datadriveletter = "F"
+$tempdbdriveletter = "T"
+
+
+Node $AllNodes.NodeName {
+    WindowsFeature Net-Framework-45-Core
+        {
+            Ensure = "Present"
+            Name = "Net-Framework-45-Core"
+        }
+    WindowsFeature Net-Framework-Core
+        {
+            Name = 'Net-Framework-Core'
+            Ensure = 'Present'
+        }
+    File SQLBinary
+    {
+        DestinationPath = "$tempdir\sqlinstall\source"
+        Credential = $storageCredential
+        Ensure = "Present"
+        SourcePath = "\\$($storageaccountname).file.core.windows.net\eaus2share\sql14"
+        Type = "Directory"
+        Recurse = $true
+    }
+    xWaitforDisk Disk2
+        {
+            DiskNumber = 2
+            RetryIntervalSec = 60
+            RetryCount = 60
+        }
+    xWaitforDisk Disk3
+        {
+            DiskNumber = 3
+            RetryIntervalSec = 60
+            RetryCount = 60
+        }
+    xDisk FVolume
+        {
+            DiskNumber = 3
+            Driveletter = $datadriveletter
+            FSLabel = 'Data'
+        }
+    xDisk TVolume
+        {
+            DiskNumber = 2
+            DriveLetter = $tempdbdriveletter
+            FSLabel = 'TempDB'
+        }
+ 
+    xSQLServerSetup Staged
+        {
+        InstanceName = 'MSSQLServer'
+        SetupCredential = $sqlsetupcred
+        #InstallSharedDir = "F:\Program Files\Microsoft SQL Server\"
+        InstallSQLDataDir = 'F:\Program Files\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\Data'
+        #InstanceDir = "F:\Program Files\Microsoft SQL Server\"
+        SourcePath = "$tempdir\sqlinstall"
+        SQLSvcAccount = $svcAccount
+        SQLTempDBDir = 'T:\Program Files\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\TEMPDB'
+        SQLTempDBLogDir = 'T:\Program Files\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\TEMP\LOG'
+        SQLUserDBDir = 'F:\Program Files\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\Data'
+        SQLUserDBLogDir = 'F:\Program Files\Microsoft SQL Server\MSSQL12.MSSQLSERVER\MSSQL\LOG'
+        UpdateEnabled = $true
+        Features = "SQLENGINE"
+        Dependson = '[xDisk]FVolume','[xDisk]TVolume','[WindowsFeature]Net-Framework-45-Core','[WindowsFeature]Net-Framework-Core'
+        }
+
 
 }
 
-Node RS
-{
-InstanceName = $instancename
-RSSQLInstanceName = "ReportingServices"
-SetupCredential = $setupcred
-InstallSharedDir = "C:\Program Files\Microsoft SQL Server\"
-InstanceDir = "C:\Program Files\Microsoft SQL Server\$($intancename)\"
-InstallSQLDataDir = "E:\Databases\"
-SourcePath = "\\Path\to\Network\Share\SQLinstaller.msi"
-SecurityMode = "Mixed"
-SQLSvcAccount = $DBSvcAcct
-Features = "Reporting Sevices"
-
-}
 
 
 
